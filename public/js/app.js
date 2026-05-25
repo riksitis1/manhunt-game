@@ -370,41 +370,32 @@ socket.on('headstartSeekerUpdate', (seekers) => {
 });
 
 socket.on('hiderPing', (hiders) => {
+    const withLoc = hiders.filter(h => h.location).length;
+    triggerAlert(`Hider ping: ${hiders.length} hiders, ${withLoc} with GPS`, 'warning');
     if (myRole !== 'seeker') return;
-    triggerAlert('Hider locations pinged! Check map.', 'warning');
-    const FADE_MS = 300000;
-    const FADE_STEPS = 50;
+    if (!map) { triggerAlert('Map not ready!', 'danger'); return; }
     hiders.forEach(h => {
-        if (!h.location || !map) return;
+        if (!h.location) return;
         const m = L.circleMarker(h.location, {
-            radius: 14,
-            color: '#f59e0b',
+            radius: 20,
+            color: '#ef4444',
             fillColor: '#fbbf24',
-            fillOpacity: 0.7,
-            weight: 3,
-            opacity: 0.9
+            fillOpacity: 0.9,
+            weight: 4,
+            opacity: 1
         }).addTo(map);
-        m.bindPopup(`<p class="font-extrabold text-xs">${h.username}</p>`);
-        const stepMs = FADE_MS / FADE_STEPS;
-        let step = 0;
+        m.bindPopup(`<p class="font-extrabold text-sm">${h.username}</p>`);
         const fadeInterval = setInterval(() => {
-            step++;
-            const progress = step / FADE_STEPS;
-            const newOpacity = 0.9 * (1 - progress);
-            const newRadius = 14 * (1 - progress * 0.3);
-            if (m._map) {
-                m.setStyle({ opacity: newOpacity, fillOpacity: newOpacity * 0.77, radius: newRadius });
-            }
-            if (step >= FADE_STEPS) {
+            if (!m._map) { clearInterval(fadeInterval); return; }
+            m.setStyle({ opacity: m.options.opacity - 0.1, fillOpacity: m.options.fillOpacity - 0.1 });
+            if (m.options.opacity <= 0) {
                 clearInterval(fadeInterval);
+                map.removeLayer(m);
                 const idx = hiderPingMarkers.findIndex(e => e.marker === m);
-                if (idx !== -1) {
-                    map.removeLayer(m);
-                    hiderPingMarkers.splice(idx, 1);
-                }
+                if (idx !== -1) hiderPingMarkers.splice(idx, 1);
             }
-        }, stepMs);
-        hiderPingMarkers.push({ marker: m, playerId: h.id, fadeInterval });
+        }, 30000);
+        hiderPingMarkers.push({ marker: m, fadeInterval });
     });
 });
 
