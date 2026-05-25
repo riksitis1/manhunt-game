@@ -396,22 +396,19 @@ socket.on('hiderPing', (hiders) => {
 });
 
 socket.on('seekerReveal', (seekers) => {
-    triggerAlert('SEEKERS REVEALED for 5 seconds!', 'info');
+    triggerAlert(`SEEKERS REVEALED (${seekers.length}) for 10 seconds!`, 'info');
     seekers.forEach(s => {
-        if (s.location) {
-            const m = L.marker(s.location, {
-                icon: L.divIcon({
-                    className: '',
-                    html: `<div class="relative"><span class="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-blue-400 opacity-75"></span><span class="relative inline-flex rounded-full h-5 w-5 bg-blue-600 border-2 border-white flex items-center justify-center text-[10px] text-white font-extrabold"><i class="fa-solid fa-person-running"></i></span></div>`
-                })
-            }).addTo(map).bindPopup(`<p class="font-extrabold text-xs text-blue-600 uppercase">Revealed: ${s.username}</p>`);
-            seekerMarkers[s.id] = m;
-        }
+        if (!s.location || !map) return;
+        const m = L.circleMarker(s.location, {
+            radius: 18, color: '#3b82f6', fillColor: '#60a5fa',
+            fillOpacity: 0.7, weight: 3, opacity: 1
+        }).addTo(map).bindPopup(`<p class="font-extrabold text-xs text-blue-600 uppercase">${s.username}</p>`);
+        seekerMarkers[s.id] = m;
     });
     setTimeout(() => {
         Object.values(seekerMarkers).forEach(m => map.removeLayer(m));
         seekerMarkers = {};
-    }, 5000);
+    }, 10000);
 });
 
 socket.on('cheatAlert', ({ playerId, username, location }) => {

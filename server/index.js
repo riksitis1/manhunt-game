@@ -143,9 +143,9 @@ io.on('connection', (socket) => {
             io.to(roomCode).emit('headstartSeekerUpdate', [{ playerId: socket.id, username: player.username, location }]);
         }
 
-        if (game.state === 'playing' && player.role === 'hider') {
+        if (game.state === 'playing' && game.boundary.length >= 3) {
             const isInside = isPointInPolygon(location, game.boundary);
-            if (!isInside) {
+            if (!isInside && (player.role === 'hider' || player.role === 'seeker')) {
                 io.to(roomCode).emit('cheatAlert', { playerId: socket.id, username: player.username, location });
             }
         }
