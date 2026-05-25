@@ -112,15 +112,25 @@ function updatePlayerList(players, hostId) {
 window.selfRole = (role) => socket.emit('selfAssignRole', { roomCode: myRoom, role });
 window.hostRole = (pid, role) => socket.emit('assignRole', { roomCode: myRoom, playerId: pid, role });
 
+function requestGpsPermission() {
+    navigator.geolocation.getCurrentPosition(
+        (pos) => { lastGoodLocations['_pending'] = [pos.coords.latitude, pos.coords.longitude]; },
+        () => {},
+        { enableHighAccuracy: true, timeout: 10000 }
+    );
+}
+
 document.getElementById('btn-create').onclick = () => {
     myUsername = elements.usernameInput.value.trim() || 'Anonymous';
     socket.emit('createGame', { username: myUsername });
+    requestGpsPermission();
 };
 document.getElementById('btn-join').onclick = () => {
     myUsername = elements.usernameInput.value.trim() || 'Anonymous';
     const room = elements.roomInput.value.trim().toUpperCase();
     if (!room) return alert('Enter room code');
     socket.emit('joinGame', { roomCode: room, username: myUsername });
+    requestGpsPermission();
 };
 
 elements.btnStartGame.onclick = () => {
@@ -160,25 +170,50 @@ function initMap() {
     }).addTo(map);
 
     const markerHex = myRole === 'seeker' ? '#3b82f6' : myRole === 'hider' ? '#10b981' : '#f43f5e';
-    navigator.geolocation.getCurrentPosition((pos) => {
+
+    function onGpsSuccess(pos) {
         const { latitude, longitude, accuracy } = pos.coords;
         if (accuracy > 80) return;
-        map.setView([latitude, longitude], 17);
-        if (userMarker) {
-            userMarker.setLatLng([latitude, longitude]);
-        } else {
-            userMarker = L.marker([latitude, longitude], {
-                icon: L.divIcon({
-                    className: '',
-                    html: `<div class="relative flex items-center justify-center">
-                        <span class="animate-ping absolute inline-flex h-6 w-6 rounded-full opacity-75" style="background-color: ${markerHex}80"></span>
-                        <span class="relative inline-flex rounded-full h-5 w-5 border-2 border-white" style="background-color: ${markerHex}"></span>
-                    </div>`
-                })
-            }).addTo(map).bindPopup('You are here');
-            lastGoodLocations[socket.id] = [latitude, longitude];
+        const loc = [latitude, longitude];
+        map.setView(loc, 17);
+        setupUserMarker(loc);
+        lastGoodLocations[socket.id] = loc;
+    }
+
+    function onGpsError() {
+        const pending = lastGoodLocations['_pending'];
+        if (pending) {
+            map.setView(pending, 16);
+            setupUserMarker(pending);
+        } else if (boundaryPoints.length >= 3) {
+            const lat = boundaryPoints.reduce((s, p) => s + p[0], 0) / boundaryPoints.length;
+            const lng = boundaryPoints.reduce((s, p) => s + p[1], 0) / boundaryPoints.length;
+            map.setView([lat, lng], 14);
         }
-    }, () => {}, { enableHighAccuracy: true, timeout: 10000 });
+    }
+
+    function setupUserMarker(loc) {
+        if (userMarker) { userMarker.setLatLng(loc); return; }
+        userMarker = L.marker(loc, {
+            icon: L.divIcon({
+                className: '',
+                html: `<div class="relative flex items-center justify-center">
+                    <span class="animate-ping absolute inline-flex h-6 w-6 rounded-full opacity-75" style="background-color: ${markerHex}80"></span>
+                    <span class="relative inline-flex rounded-full h-5 w-5 border-2 border-white" style="background-color: ${markerHex}"></span>
+                </div>`
+            })
+        }).addTo(map).bindPopup('You are here');
+    }
+
+    const pendingLoc = lastGoodLocations['_pending'];
+    if (pendingLoc) {
+        map.setView(pendingLoc, 17);
+        setupUserMarker(pendingLoc);
+        lastGoodLocations[socket.id] = pendingLoc;
+        delete lastGoodLocations['_pending'];
+    } else {
+        navigator.geolocation.getCurrentPosition(onGpsSuccess, onGpsError, { enableHighAccuracy: true, timeout: 10000 });
+    }
 
     map.on('click', (e) => {
         if (elements.boundaryControls.classList.contains('hidden')) return;
