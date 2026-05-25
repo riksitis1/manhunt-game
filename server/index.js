@@ -58,6 +58,19 @@ io.on('connection', (socket) => {
         }
     });
 
+    socket.on('kickPlayer', ({ roomCode, playerId }) => {
+        const game = games[roomCode];
+        if (game && game.host === socket.id && playerId !== socket.id && game.players[playerId]) {
+            const kickedSocket = io.sockets.sockets.get(playerId);
+            if (kickedSocket) {
+                kickedSocket.leave(roomCode);
+                kickedSocket.emit('kicked', 'You were kicked by the host.');
+            }
+            delete game.players[playerId];
+            io.to(roomCode).emit('playersUpdated', { players: game.players, hostId: game.host });
+        }
+    });
+
     socket.on('selfAssignRole', ({ roomCode, role }) => {
         const game = games[roomCode];
         if (game && game.players[socket.id] && ['seeker', 'hider'].includes(role)) {

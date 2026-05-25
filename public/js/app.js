@@ -72,9 +72,11 @@ function updatePlayerList(players, hostId) {
         if (isHost) {
             const isS = role === 'seeker';
             const isH = role === 'hider';
-            right = `<div class="flex gap-1">
-                <button onclick="hostRole('${p.id}','seeker')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isS ? 'bg-blue-600 text-white' : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white'}"><i class="fa-solid fa-binoculars mr-1"></i>Seeker</button>
-                <button onclick="hostRole('${p.id}','hider')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isH ? 'bg-emerald-600 text-white' : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white'}"><i class="fa-solid fa-eye-slash mr-1"></i>Hider</button>
+            const isSelf = p.id === socket.id;
+            right = `<div class="flex items-center gap-1">
+                <button onclick="hostRole('${p.id}','seeker')" class="px-2 py-1 text-xs font-bold rounded-md transition ${isS ? 'bg-blue-600 text-white' : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white'}"><i class="fa-solid fa-binoculars mr-1"></i>Seeker</button>
+                <button onclick="hostRole('${p.id}','hider')" class="px-2 py-1 text-xs font-bold rounded-md transition ${isH ? 'bg-emerald-600 text-white' : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white'}"><i class="fa-solid fa-eye-slash mr-1"></i>Hider</button>
+                ${!isSelf ? `<button onclick="hostKick('${p.id}')" class="px-2 py-1 text-xs font-bold rounded-md bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white transition"><i class="fa-solid fa-ban"></i></button>` : ''}
             </div>`;
         }
 
@@ -104,6 +106,7 @@ function sanitizeUsername(raw) {
 }
 
 window.hostRole = (pid, role) => socket.emit('assignRole', { roomCode: myRoom, playerId: pid, role });
+window.hostKick = (pid) => { if (confirm('Kick this player?')) socket.emit('kickPlayer', { roomCode: myRoom, playerId: pid }); };
 
 function requestGpsPermission() {
     navigator.geolocation.getCurrentPosition(
@@ -454,6 +457,16 @@ socket.on('gameEnded', () => {
     elements.btnDrawBounds.classList.add('hidden');
     elements.btnStartGame.classList.add('hidden');
     triggerAlert('Game has ended by the host.', 'danger');
+});
+
+socket.on('kicked', (msg) => {
+    alert(msg);
+    myRoom = null; myRole = 'pending'; isHost = false;
+    if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+    if (timerInterval) clearInterval(timerInterval);
+    elements.setupContainer.classList.remove('hidden');
+    elements.roomInfo.classList.add('hidden');
+    switchView('lobby');
 });
 
 socket.on('error', (msg) => alert(msg));
