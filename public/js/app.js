@@ -8,8 +8,10 @@ let map = null;
 let userMarker = null;
 let boundaryPoints = [];
 let boundaryPolygon = null;
-let hiderMarkers = {};
+let hiderPingMarkers = [];
+let pingIdCounter = 0;
 let penaltyMarkers = {};
+let lastGoodLocations = {};
 let playersList = {};
 let timerInterval = null;
 let revealUsed = false;
@@ -157,8 +159,10 @@ function initMap() {
         maxZoom: 19
     }).addTo(map);
 
-    const locationSuccess = (pos) => {
-        const { latitude, longitude } = pos.coords;
+    const markerHex = myRole === 'seeker' ? '#3b82f6' : myRole === 'hider' ? '#10b981' : '#f43f5e';
+    navigator.geolocation.getCurrentPosition((pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        if (accuracy > 80) return;
         map.setView([latitude, longitude], 17);
         if (userMarker) {
             userMarker.setLatLng([latitude, longitude]);
@@ -167,14 +171,14 @@ function initMap() {
                 icon: L.divIcon({
                     className: '',
                     html: `<div class="relative flex items-center justify-center">
-                        <span class="animate-ping absolute inline-flex h-6 w-6 rounded-full bg-rose-400 opacity-75"></span>
-                        <span class="relative inline-flex rounded-full h-5 w-5 bg-rose-500 border-2 border-white"></span>
+                        <span class="animate-ping absolute inline-flex h-6 w-6 rounded-full opacity-75" style="background-color: ${markerHex}80"></span>
+                        <span class="relative inline-flex rounded-full h-5 w-5 border-2 border-white" style="background-color: ${markerHex}"></span>
                     </div>`
                 })
             }).addTo(map).bindPopup('You are here');
+            lastGoodLocations[socket.id] = [latitude, longitude];
         }
-    };
-    navigator.geolocation.getCurrentPosition(locationSuccess, () => {}, { enableHighAccuracy: true });
+    }, () => {}, { enableHighAccuracy: true, timeout: 10000 });
 
     map.on('click', (e) => {
         if (elements.boundaryControls.classList.contains('hidden')) return;
@@ -204,11 +208,23 @@ elements.btnConfirmBoundary.onclick = () => {
 };
 
 function startTracking() {
+    const ACCURACY_THRESHOLD = 80;
+    const SMOOTHING = 0.3;
+    let smoothed = null;
     navigator.geolocation.watchPosition(pos => {
-        const loc = [pos.coords.latitude, pos.coords.longitude];
+        const { latitude, longitude, accuracy } = pos.coords;
+        if (accuracy > ACCURACY_THRESHOLD) return;
+        if (!smoothed) {
+            smoothed = [latitude, longitude];
+        } else {
+            smoothed[0] += (latitude - smoothed[0]) * SMOOTHING;
+            smoothed[1] += (longitude - smoothed[1]) * SMOOTHING;
+        }
+        const loc = [smoothed[0], smoothed[1]];
+        lastGoodLocations[socket.id] = loc;
         if (userMarker) userMarker.setLatLng(loc);
         socket.emit('updateLocation', { roomCode: myRoom, location: loc });
-    }, () => {}, { enableHighAccuracy: true, maximumAge: 0 });
+    }, () => {}, { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 });
 }
 
 function triggerAlert(msg, type = 'warning') {
@@ -255,11 +271,22 @@ socket.on('joinedGame', ({ roomCode, players, hostId }) => {
 socket.on('playersUpdated', ({ players, hostId }) => {
     updatePlayerList(players, hostId);
     if (players[socket.id]) {
+        const oldRole = myRole;
         myRole = players[socket.id].role;
         elements.roleIndicator.innerText = `Role: ${myRole}`;
         revealUsed = players[socket.id].revealUsed || false;
         const showReveal = myRole === 'hider' && !revealUsed;
         elements.hiderRevealContainer.classList.toggle('hidden', !showReveal);
+        if (oldRole !== myRole && userMarker) {
+            const hex = myRole === 'seeker' ? '#3b82f6' : myRole === 'hider' ? '#10b981' : '#f43f5e';
+            userMarker.setIcon(L.divIcon({
+                className: '',
+                html: `<div class="relative flex items-center justify-center">
+                    <span class="animate-ping absolute inline-flex h-6 w-6 rounded-full opacity-75" style="background-color: ${hex}80"></span>
+                    <span class="relative inline-flex rounded-full h-5 w-5 border-2 border-white" style="background-color: ${hex}"></span>
+                </div>`
+            }));
+        }
     }
 });
 
@@ -286,6 +313,7 @@ socket.on('gameStarted', ({ state, duration }) => {
 socket.on('hiderPing', (hiders) => {
     triggerAlert('Hider locations pinged! Latest positions revealed.', 'warning');
     const PING_FADE_MS = 300000;
+    const batchId = ++pingIdCounter;
     hiders.forEach(h => {
         if (myRole === 'seeker' && h.location) {
             const m = L.marker(h.location, {
@@ -294,11 +322,12 @@ socket.on('hiderPing', (hiders) => {
                     html: `<div class="hider-ping-inner"><span class="inline-flex rounded-full h-5 w-5 bg-amber-500 border-2 border-white flex items-center justify-center text-[10px] text-black font-extrabold shadow-lg shadow-amber-500/50"><i class="fa-solid fa-location-pin"></i></span><div class="text-center text-[9px] font-extrabold uppercase tracking-wider text-amber-300 drop-shadow-lg mt-0.5">${h.username}</div></div>`
                 })
             }).addTo(map).bindPopup(`<p class="font-extrabold text-xs">${h.username} — latest ping</p>`);
-            hiderMarkers[h.id] = m;
+            hiderPingMarkers.push({ marker: m, batchId });
             setTimeout(() => {
-                if (hiderMarkers[h.id]) {
-                    map.removeLayer(hiderMarkers[h.id]);
-                    delete hiderMarkers[h.id];
+                const idx = hiderPingMarkers.findIndex(e => e.marker === m);
+                if (idx !== -1) {
+                    map.removeLayer(m);
+                    hiderPingMarkers.splice(idx, 1);
                 }
             }, PING_FADE_MS);
         }
