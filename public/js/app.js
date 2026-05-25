@@ -1,9 +1,7 @@
 const socket = io();
 
-// --- State ---
-let myId = null;
-let myUsername = '';
 let myRoom = null;
+let myUsername = '';
 let myRole = 'pending';
 let isHost = false;
 let map = null;
@@ -14,8 +12,9 @@ let hiderMarkers = {};
 let penaltyMarkers = {};
 let playersList = {};
 let timerInterval = null;
+let revealUsed = false;
+let seekerMarkers = {};
 
-// --- DOM Elements ---
 const views = {
     lobby: document.getElementById('lobby-view'),
     game: document.getElementById('game-view')
@@ -36,42 +35,47 @@ const elements = {
     btnConfirmBoundary: document.getElementById('btn-confirm-boundary'),
     btnResetBoundary: document.getElementById('btn-reset-boundary'),
     roleIndicator: document.getElementById('role-indicator'),
-    gameAlerts: document.getElementById('game-alerts')
+    gameAlerts: document.getElementById('game-alerts'),
+    hiderRevealContainer: document.getElementById('hider-reveal-container'),
+    btnRevealSeekers: document.getElementById('btn-reveal-seekers')
 };
 
-function switchView(viewName) {
+function switchView(name) {
     Object.values(views).forEach(v => v.classList.add('hidden'));
-    views[viewName].classList.remove('hidden');
+    views[name].classList.remove('hidden');
 }
 
-// --- Player List ---
 function updatePlayerList(players) {
     playersList = players;
     elements.playerList.innerHTML = '';
 
-    Object.values(players).forEach(player => {
-        const isMe = player.id === socket.id;
+    Object.values(players).forEach(p => {
+        const isMe = p.id === socket.id;
+        const role = p.role || 'pending';
         const row = document.createElement('div');
         row.className = "flex items-center justify-between p-3 bg-gray-950/50 border border-gray-800 rounded-xl";
 
-        const role = player.role || 'pending';
-        let roleBadge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-gray-800 text-gray-400">Pending</span>`;
+        let badge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-gray-800 text-gray-400">Pending</span>`;
+        if (role === 'host') badge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30"><i class="fa-solid fa-crown mr-1"></i>Host</span>`;
+        if (role === 'seeker') badge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30"><i class="fa-solid fa-binoculars mr-1"></i>Seeker</span>`;
+        if (role === 'hider') badge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"><i class="fa-solid fa-eye-slash mr-1"></i>Hider</span>`;
 
-        if (role === 'host') roleBadge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30"><i class="fa-solid fa-crown mr-1"></i>Host</span>`;
-        if (role === 'seeker') roleBadge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30"><i class="fa-solid fa-binoculars mr-1"></i>Seeker</span>`;
-        if (role === 'hider') roleBadge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"><i class="fa-solid fa-eye-slash mr-1"></i>Hider</span>`;
-
-        // Host sees role buttons for non-host players
-        let rightSide = roleBadge;
-        if (isHost && player.id !== socket.id) {
-            const isSeeker = role === 'seeker';
-            const isHider = role === 'hider';
-            rightSide = `
-                <div class="flex gap-1">
-                    <button onclick="setRole('${player.id}','seeker')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isSeeker ? 'bg-blue-600 text-white' : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white'}">Seeker</button>
-                    <button onclick="setRole('${player.id}','hider')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isHider ? 'bg-emerald-600 text-white' : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white'}">Hider</button>
-                </div>
-            `;
+        let right = badge;
+        if (isMe && role !== 'host') {
+            const isS = role === 'seeker';
+            const isH = role === 'hider';
+            right = `<div class="flex gap-1">
+                <button onclick="selfRole('seeker')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isS ? 'bg-blue-600 text-white' : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white'}"><i class="fa-solid fa-binoculars mr-1"></i>Seeker</button>
+                <button onclick="selfRole('hider')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isH ? 'bg-emerald-600 text-white' : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white'}"><i class="fa-solid fa-eye-slash mr-1"></i>Hider</button>
+            </div>`;
+        }
+        if (!isMe && isHost && role !== 'host') {
+            const isS = role === 'seeker';
+            const isH = role === 'hider';
+            right = `<div class="flex gap-1">
+                <button onclick="hostRole('${p.id}','seeker')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isS ? 'bg-blue-600 text-white' : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white'}">Seeker</button>
+                <button onclick="hostRole('${p.id}','hider')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isH ? 'bg-emerald-600 text-white' : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white'}">Hider</button>
+            </div>`;
         }
 
         row.innerHTML = `
@@ -79,33 +83,27 @@ function updatePlayerList(players) {
                 <div class="w-8 h-8 bg-gray-800 border border-gray-700 flex items-center justify-center rounded-lg text-sm font-bold text-gray-300">
                     <i class="fa-solid ${role === 'host' ? 'fa-crown text-amber-400' : 'fa-user'}"></i>
                 </div>
-                <div>
-                    <p class="font-bold text-white text-sm">${player.username} ${isMe ? '<span class="text-[10px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded font-extrabold uppercase">You</span>' : ''}</p>
-                </div>
+                <div><p class="font-bold text-white text-sm">${p.username} ${isMe ? '<span class="text-[10px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded font-extrabold uppercase">You</span>' : ''}</p></div>
             </div>
-            <div>${rightSide}</div>
+            <div>${right}</div>
         `;
         elements.playerList.appendChild(row);
     });
 
-    // Show start button only if at least one seeker and one hider are assigned
     if (isHost) {
-        const hasSeeker = Object.values(players).some(p => p.role === 'seeker');
-        const hasHider = Object.values(players).some(p => p.role === 'hider');
-        elements.btnStartGame.classList.toggle('hidden', !(hasSeeker && hasHider));
+        const hasS = Object.values(players).some(p => p.role === 'seeker');
+        const hasH = Object.values(players).some(p => p.role === 'hider');
+        elements.btnStartGame.classList.toggle('hidden', !(hasS && hasH));
     }
 }
 
-window.setRole = (playerId, role) => {
-    socket.emit('assignRole', { roomCode: myRoom, playerId, role });
-};
+window.selfRole = (role) => socket.emit('selfAssignRole', { roomCode: myRoom, role });
+window.hostRole = (pid, role) => socket.emit('assignRole', { roomCode: myRoom, playerId: pid, role });
 
-// --- Lobby ---
 document.getElementById('btn-create').onclick = () => {
     myUsername = elements.usernameInput.value.trim() || 'Anonymous';
     socket.emit('createGame', { username: myUsername });
 };
-
 document.getElementById('btn-join').onclick = () => {
     myUsername = elements.usernameInput.value.trim() || 'Anonymous';
     const room = elements.roomInput.value.trim().toUpperCase();
@@ -114,44 +112,63 @@ document.getElementById('btn-join').onclick = () => {
 };
 
 elements.btnStartGame.onclick = () => {
-    if (boundaryPoints.length < 3) {
-        return alert("Draw a Play Zone border first!");
-    }
+    if (boundaryPoints.length < 3) return alert('Draw a Play Zone border first!');
     socket.emit('startGame', myRoom);
 };
-
 elements.btnDrawBounds.onclick = () => {
     switchView('game');
     initMap();
     elements.boundaryControls.classList.remove('hidden');
 };
 
+elements.btnRevealSeekers.onclick = () => {
+    if (revealUsed) return;
+    revealUsed = true;
+    elements.hiderRevealContainer.classList.add('hidden');
+    socket.emit('requestReveal', myRoom);
+};
+
 // --- Map ---
 function initMap() {
-    if (map) return;
-
+    if (map) {
+        map.invalidateSize();
+        return;
+    }
     map = L.map('map', { zoomControl: false, attributionControl: false }).setView([0, 0], 15);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(map);
 
-    navigator.geolocation.getCurrentPosition(pos => {
+    // ESRI Satellite imagery (free, no API key needed)
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19,
+        attribution: 'Esri, Maxar, Earthstar Geographics'
+    }).addTo(map);
+
+    // Overlay with street labels
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+        maxZoom: 19
+    }).addTo(map);
+
+    const locationSuccess = (pos) => {
         const { latitude, longitude } = pos.coords;
-        map.setView([latitude, longitude], 16);
-
-        userMarker = L.marker([latitude, longitude], {
-            icon: L.divIcon({
-                className: '',
-                html: `<div class="relative flex items-center justify-center">
-                    <span class="animate-ping absolute inline-flex h-6 w-6 rounded-full bg-rose-400 opacity-75"></span>
-                    <span class="relative inline-flex rounded-full h-4.5 w-4.5 bg-rose-500 border-2 border-white"></span>
-                </div>`
-            })
-        }).addTo(map);
-    }, () => {}, { enableHighAccuracy: true });
+        map.setView([latitude, longitude], 17);
+        if (userMarker) {
+            userMarker.setLatLng([latitude, longitude]);
+        } else {
+            userMarker = L.marker([latitude, longitude], {
+                icon: L.divIcon({
+                    className: '',
+                    html: `<div class="relative flex items-center justify-center">
+                        <span class="animate-ping absolute inline-flex h-6 w-6 rounded-full bg-rose-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-5 w-5 bg-rose-500 border-2 border-white"></span>
+                    </div>`
+                })
+            }).addTo(map).bindPopup('You are here');
+        }
+    };
+    navigator.geolocation.getCurrentPosition(locationSuccess, () => {}, { enableHighAccuracy: true });
 
     map.on('click', (e) => {
         if (elements.boundaryControls.classList.contains('hidden')) return;
-        const { lat, lng } = e.latlng;
-        boundaryPoints.push([lat, lng]);
+        boundaryPoints.push([e.latlng.lat, e.latlng.lng]);
         redrawBoundary();
     });
 }
@@ -159,7 +176,7 @@ function initMap() {
 function redrawBoundary() {
     if (boundaryPolygon) map.removeLayer(boundaryPolygon);
     if (boundaryPoints.length >= 3) {
-        boundaryPolygon = L.polygon(boundaryPoints, { color: '#f43f5e', fillColor: '#f43f5e', fillOpacity: 0.15, weight: 3, dashArray: '5, 5' }).addTo(map);
+        boundaryPolygon = L.polygon(boundaryPoints, { color: '#f43f5e', fillColor: '#f43f5e', fillOpacity: 0.15, weight: 3, dashArray: '5,5' }).addTo(map);
     } else if (boundaryPoints.length > 0) {
         boundaryPolygon = L.polyline(boundaryPoints, { color: '#f43f5e', weight: 3 }).addTo(map);
     }
@@ -169,32 +186,29 @@ elements.btnResetBoundary.onclick = () => {
     boundaryPoints = [];
     if (boundaryPolygon) { map.removeLayer(boundaryPolygon); boundaryPolygon = null; }
 };
-
 elements.btnConfirmBoundary.onclick = () => {
-    if (boundaryPoints.length < 3) return alert("Tap at least 3 points on the map.");
+    if (boundaryPoints.length < 3) return alert('Tap at least 3 points on map');
     socket.emit('setBoundary', { roomCode: myRoom, boundary: boundaryPoints });
     elements.boundaryControls.classList.add('hidden');
     switchView('lobby');
 };
 
-// --- Tracking ---
 function startTracking() {
     navigator.geolocation.watchPosition(pos => {
-        const location = [pos.coords.latitude, pos.coords.longitude];
-        if (userMarker) userMarker.setLatLng(location);
-        socket.emit('updateLocation', { roomCode: myRoom, location });
+        const loc = [pos.coords.latitude, pos.coords.longitude];
+        if (userMarker) userMarker.setLatLng(loc);
+        socket.emit('updateLocation', { roomCode: myRoom, location: loc });
     }, () => {}, { enableHighAccuracy: true, maximumAge: 0 });
 }
 
 function triggerAlert(msg, type = 'warning') {
-    const div = document.createElement('div');
-    div.className = `p-3 px-4 rounded-xl flex items-center gap-2 shadow-2xl border glassmorphism animate-bounce pointer-events-auto max-w-sm ${type === 'danger' ? 'text-red-500 border-red-500/20' : 'text-amber-500 border-amber-500/20'}`;
-    div.innerHTML = `<i class="fa-solid ${type === 'danger' ? 'fa-triangle-exclamation animate-pulse' : 'fa-circle-exclamation'}"></i><span class="text-xs font-black uppercase tracking-wider">${msg}</span>`;
-    elements.gameAlerts.appendChild(div);
-    setTimeout(() => div.remove(), 5000);
+    const d = document.createElement('div');
+    d.className = `p-3 px-4 rounded-xl flex items-center gap-2 shadow-2xl border glassmorphism animate-bounce pointer-events-auto max-w-sm ${type === 'danger' ? 'text-red-500 border-red-500/20' : type === 'info' ? 'text-purple-500 border-purple-500/20' : 'text-amber-500 border-amber-500/20'}`;
+    d.innerHTML = `<i class="fa-solid ${type === 'danger' ? 'fa-triangle-exclamation animate-pulse' : type === 'info' ? 'fa-eye' : 'fa-circle-exclamation'}"></i><span class="text-xs font-black uppercase tracking-wider">${msg}</span>`;
+    elements.gameAlerts.appendChild(d);
+    setTimeout(() => d.remove(), 5000);
 }
 
-// --- Timers ---
 function runCountdown(sec, cb) {
     if (timerInterval) clearInterval(timerInterval);
     let left = sec;
@@ -205,7 +219,6 @@ function runCountdown(sec, cb) {
         if (left <= 0) { clearInterval(timerInterval); if (cb) cb(); }
     }, 1000);
 }
-
 function updateTimerUI(sec) {
     elements.timerDisplay.innerText = `${String(Math.floor(sec/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;
 }
@@ -234,12 +247,15 @@ socket.on('playersUpdated', (players) => {
     if (players[socket.id]) {
         myRole = players[socket.id].role;
         elements.roleIndicator.innerText = `Role: ${myRole}`;
+        revealUsed = players[socket.id].revealUsed || false;
+        const showReveal = myRole === 'hider' && !revealUsed;
+        elements.hiderRevealContainer.classList.toggle('hidden', !showReveal);
     }
 });
 
 socket.on('boundaryUpdated', (boundary) => {
     boundaryPoints = boundary;
-    if (!map) initMap();
+    initMap();
     redrawBoundary();
 });
 
@@ -247,13 +263,10 @@ socket.on('gameStarted', ({ state, duration }) => {
     switchView('game');
     initMap();
     startTracking();
-
     if (state === 'headstart') {
-        elements.statusMsg.innerText = 'Hiders: Run & Hide!';
-        triggerAlert('Game Started: 1-minute headstart!');
-        runCountdown(duration, () => {
-            elements.statusMsg.innerText = 'Hunt Mode Active';
-        });
+        elements.statusMsg.innerText = 'Hiders: RUN & HIDE!';
+        triggerAlert('Game started! 1-minute headstart!', 'warning');
+        runCountdown(duration, () => elements.statusMsg.innerText = 'Hunt Mode Active');
     } else {
         elements.statusMsg.innerText = 'Hunt Mode Active';
         runCountdown(300, function loop() { runCountdown(300, loop); });
@@ -263,6 +276,7 @@ socket.on('gameStarted', ({ state, duration }) => {
 socket.on('hiderPing', (hiders) => {
     Object.values(hiderMarkers).forEach(m => map.removeLayer(m));
     hiderMarkers = {};
+    triggerAlert('Hiders have been pinged! Check map.', 'warning');
     hiders.forEach(h => {
         if (myRole === 'seeker' && h.location) {
             const m = L.marker(h.location, {
@@ -274,6 +288,25 @@ socket.on('hiderPing', (hiders) => {
             hiderMarkers[h.id] = m;
         }
     });
+});
+
+socket.on('seekerReveal', (seekers) => {
+    triggerAlert('SEEKERS REVEALED for 5 seconds!', 'info');
+    seekers.forEach(s => {
+        if (s.location) {
+            const m = L.marker(s.location, {
+                icon: L.divIcon({
+                    className: '',
+                    html: `<div class="relative"><span class="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-blue-400 opacity-75"></span><span class="relative inline-flex rounded-full h-5 w-5 bg-blue-600 border-2 border-white flex items-center justify-center text-[10px] text-white font-extrabold"><i class="fa-solid fa-person-running"></i></span></div>`
+                })
+            }).addTo(map).bindPopup(`<p class="font-extrabold text-xs text-blue-600 uppercase">Revealed: ${s.username}</p>`);
+            seekerMarkers[s.id] = m;
+        }
+    });
+    setTimeout(() => {
+        Object.values(seekerMarkers).forEach(m => map.removeLayer(m));
+        seekerMarkers = {};
+    }, 5000);
 });
 
 socket.on('cheatAlert', ({ playerId, username, location }) => {
