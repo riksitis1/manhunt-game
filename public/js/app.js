@@ -370,32 +370,25 @@ socket.on('headstartSeekerUpdate', (seekers) => {
 });
 
 socket.on('hiderPing', (hiders) => {
+    if (myRole !== 'seeker') return;
     const withLoc = hiders.filter(h => h.location).length;
     triggerAlert(`Hider ping: ${hiders.length} hiders, ${withLoc} with GPS`, 'warning');
-    if (myRole !== 'seeker') return;
-    if (!map) { triggerAlert('Map not ready!', 'danger'); return; }
     hiders.forEach(h => {
-        if (!h.location) return;
+        if (!h.location || !map) return;
         const m = L.circleMarker(h.location, {
-            radius: 20,
-            color: '#ef4444',
+            radius: 22,
+            color: '#dc2626',
             fillColor: '#fbbf24',
-            fillOpacity: 0.9,
+            fillOpacity: 0.85,
             weight: 4,
             opacity: 1
         }).addTo(map);
         m.bindPopup(`<p class="font-extrabold text-sm">${h.username}</p>`);
-        const fadeInterval = setInterval(() => {
-            if (!m._map) { clearInterval(fadeInterval); return; }
-            m.setStyle({ opacity: m.options.opacity - 0.1, fillOpacity: m.options.fillOpacity - 0.1 });
-            if (m.options.opacity <= 0) {
-                clearInterval(fadeInterval);
-                map.removeLayer(m);
-                const idx = hiderPingMarkers.findIndex(e => e.marker === m);
-                if (idx !== -1) hiderPingMarkers.splice(idx, 1);
-            }
-        }, 30000);
-        hiderPingMarkers.push({ marker: m, fadeInterval });
+        hiderPingMarkers.push({ marker: m });
+        setTimeout(() => {
+            const idx = hiderPingMarkers.findIndex(e => e.marker === m);
+            if (idx !== -1) { map.removeLayer(m); hiderPingMarkers.splice(idx, 1); }
+        }, 300000);
     });
 });
 
