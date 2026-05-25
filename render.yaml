@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: manhunt-game
+    runtime: node
+    buildCommand: npm install
+    startCommand: node server/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>GPS Manhunt</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        /* Custom Leaflet styling to match dark mode */
+        .leaflet-container {
+            background: #111827 !important;
+        }
+        /* Custom styled overlay shadows */
+        .glassmorphism {
+            background: rgba(17, 24, 39, 0.85);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 font-sans h-screen w-screen overflow-hidden">
+    <div id="app" class="h-full w-full">
+        <!-- Lobby View -->
+        <section id="lobby-view" class="h-full w-full flex flex-col items-center justify-center p-6 space-y-8">
+            <div class="text-center space-y-2">
+                <div class="inline-flex items-center justify-center p-4 bg-rose-500/10 text-rose-500 rounded-full text-4xl mb-2 animate-bounce">
+                    <i class="fa-solid fa-person-running"></i>
+                </div>
+                <h1 class="text-5xl font-black tracking-tight text-white uppercase">Manhunt<span class="text-rose-500">.io</span></h1>
+                <p class="text-gray-400 font-medium">Real-time GPS Hide & Seek</p>
+            </div>
+
+            <!-- Setup Form -->
+            <div id="setup-container" class="w-full max-w-md bg-gray-900 border border-gray-800 rounded-2xl p-6 space-y-4 shadow-2xl">
+                <div class="space-y-1">
+                    <label class="text-xs font-bold uppercase tracking-wider text-gray-400">Username</label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">
+                            <i class="fa-solid fa-user"></i>
+                        </span>
+                        <input type="text" id="username" placeholder="Enter your name" class="w-full pl-10 pr-4 py-3 bg-gray-950 border border-gray-800 rounded-xl focus:border-rose-500 focus:outline-none text-white transition">
+                    </div>
+                </div>
+
+                <div class="space-y-1">
+                    <label class="text-xs font-bold uppercase tracking-wider text-gray-400">Room Code (To Join)</label>
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500">
+                            <i class="fa-solid fa-lock"></i>
+                        </span>
+                        <input type="text" id="room-code" placeholder="4-Digit Code" class="w-full pl-10 pr-4 py-3 bg-gray-950 border border-gray-800 rounded-xl focus:border-rose-500 focus:outline-none text-white transition uppercase text-center font-bold tracking-widest">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 pt-2">
+                    <button id="btn-create" class="py-3 px-4 bg-gray-800 hover:bg-gray-700 active:scale-95 text-white font-bold rounded-xl transition flex items-center justify-center gap-2 border border-gray-700 shadow-md">
+                        <i class="fa-solid fa-plus text-rose-500"></i> Create
+                    </button>
+                    <button id="btn-join" class="py-3 px-4 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-bold rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-rose-600/30">
+                        <i class="fa-solid fa-right-to-bracket"></i> Join Game
+                    </button>
+                </div>
+            </div>
+
+            <!-- Room Info / Waiting Lobby -->
+            <div id="room-info" class="hidden w-full max-w-md bg-gray-900 border border-gray-800 rounded-2xl p-6 space-y-6 shadow-2xl">
+                <div class="flex items-center justify-between border-b border-gray-800 pb-4">
+                    <div>
+                        <h3 class="text-xs font-bold uppercase tracking-wider text-gray-400">Room Code</h3>
+                        <p id="display-room-code" class="text-3xl font-black tracking-widest text-white uppercase">----</p>
+                    </div>
+                    <div class="px-3 py-1 bg-rose-500/15 border border-rose-500/30 text-rose-400 rounded-full text-xs font-bold uppercase tracking-wider">
+                        Waiting Room
+                    </div>
+                </div>
+
+                <div class="space-y-3">
+                    <h4 class="text-sm font-bold uppercase tracking-wider text-gray-400 flex items-center gap-2">
+                        <i class="fa-solid fa-users text-rose-500"></i> Players connected
+                    </h4>
+                    <div id="player-list" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        <!-- Dynamic Player Rows -->
+                    </div>
+                </div>
+
+                <button id="btn-start-game" class="hidden w-full py-4 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white font-extrabold uppercase rounded-xl transition shadow-lg shadow-rose-600/30 tracking-wider">
+                    <i class="fa-solid fa-play mr-2"></i> Start Hunt
+                </button>
+            </div>
+        </section>
+
+        <!-- Game View -->
+        <section id="game-view" class="hidden h-full w-full relative">
+            <div id="map" class="h-full w-full"></div>
+            
+            <!-- Game UI Overlays -->
+            <div class="absolute inset-x-0 top-0 p-4 z-[1000] pointer-events-none flex flex-col items-center space-y-3">
+                <!-- Status/Timer Card -->
+                <div class="w-full max-w-md glassmorphism rounded-2xl p-4 flex items-center justify-between shadow-2xl pointer-events-auto">
+                    <div class="flex items-center gap-3">
+                        <div id="timer-icon" class="p-3 bg-rose-500/10 text-rose-500 rounded-xl text-xl animate-pulse">
+                            <i class="fa-solid fa-stopwatch"></i>
+                        </div>
+                        <div>
+                            <div id="status-message" class="text-sm font-bold text-gray-300">Setting up bounds...</div>
+                            <div class="text-[10px] font-bold text-rose-400 uppercase tracking-widest" id="role-indicator">Role: Pending</div>
+                        </div>
+                    </div>
+                    <div id="timer-display" class="text-3xl font-black font-mono tracking-tight text-white bg-gray-950 px-4 py-2 border border-gray-800 rounded-xl">00:00</div>
+                </div>
+
+                <!-- Host Map Drawing Actions -->
+                <div id="boundary-controls" class="hidden w-full max-w-md pointer-events-auto">
+                    <div class="bg-gray-900 border border-gray-800 rounded-2xl p-4 shadow-2xl flex flex-col gap-3">
+                        <div class="text-xs font-bold text-gray-400 text-center uppercase tracking-wider">
+                            <i class="fa-solid fa-pencil text-rose-500 mr-1"></i> Tap points on the map to draw the border
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button id="btn-reset-boundary" class="py-2.5 px-4 bg-gray-800 hover:bg-gray-700 text-white font-bold rounded-xl transition border border-gray-700 text-sm">
+                                Reset
+                            </button>
+                            <button id="btn-confirm-boundary" class="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition shadow-lg shadow-emerald-600/20 text-sm">
+                                Confirm Border
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- In-game Alerts -->
+            <div id="game-alerts" class="absolute bottom-6 inset-x-0 p-4 z-[1000] pointer-events-none flex flex-col items-center space-y-2">
+                <!-- Live alerts like Out of bounds penalties -->
+            </div>
+        </section>
+    </div>
+
+    <!-- Socket.io and Leaflet JS -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
