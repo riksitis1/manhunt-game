@@ -138,6 +138,15 @@ button:active { opacity: 0.7; }
     justify-content: center;
 }
 
+@keyframes hiderPingFade {
+    from { opacity: 1; transform: scale(1); }
+    to { opacity: 0; transform: scale(0.8); }
+}
+
+.hider-ping-marker .hider-ping-inner {
+    animation: hiderPingFade 300s linear forwards;
+}
+
 #btn-confirm-boundary {
     background-color: var(--accent);
 }

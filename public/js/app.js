@@ -45,23 +45,25 @@ function switchView(name) {
     views[name].classList.remove('hidden');
 }
 
-function updatePlayerList(players) {
+function updatePlayerList(players, hostId) {
     playersList = players;
     elements.playerList.innerHTML = '';
 
     Object.values(players).forEach(p => {
         const isMe = p.id === socket.id;
+        const isPlayerHost = p.id === hostId;
         const role = p.role || 'pending';
         const row = document.createElement('div');
         row.className = "flex items-center justify-between p-3 bg-gray-950/50 border border-gray-800 rounded-xl";
 
-        let badge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-gray-800 text-gray-400">Pending</span>`;
-        if (role === 'host') badge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30"><i class="fa-solid fa-crown mr-1"></i>Host</span>`;
-        if (role === 'seeker') badge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30"><i class="fa-solid fa-binoculars mr-1"></i>Seeker</span>`;
-        if (role === 'hider') badge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"><i class="fa-solid fa-eye-slash mr-1"></i>Hider</span>`;
+        let badge;
+        if (isPlayerHost) badge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30"><i class="fa-solid fa-crown mr-1"></i>Host</span>`;
+        else if (role === 'seeker') badge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30"><i class="fa-solid fa-binoculars mr-1"></i>Seeker</span>`;
+        else if (role === 'hider') badge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"><i class="fa-solid fa-eye-slash mr-1"></i>Hider</span>`;
+        else badge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-gray-800 text-gray-400">Pending</span>`;
 
         let right = badge;
-        if (isMe && role !== 'host') {
+        if (isMe && !isPlayerHost) {
             const isS = role === 'seeker';
             const isH = role === 'hider';
             right = `<div class="flex gap-1">
@@ -69,7 +71,15 @@ function updatePlayerList(players) {
                 <button onclick="selfRole('hider')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isH ? 'bg-emerald-600 text-white' : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white'}"><i class="fa-solid fa-eye-slash mr-1"></i>Hider</button>
             </div>`;
         }
-        if (!isMe && isHost && role !== 'host') {
+        if (isMe && isPlayerHost) {
+            const isS = role === 'seeker';
+            const isH = role === 'hider';
+            right = `<div class="flex gap-1">
+                <button onclick="selfRole('seeker')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isS ? 'bg-blue-600 text-white' : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white'}"><i class="fa-solid fa-binoculars mr-1"></i>Seeker</button>
+                <button onclick="selfRole('hider')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isH ? 'bg-emerald-600 text-white' : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white'}"><i class="fa-solid fa-eye-slash mr-1"></i>Hider</button>
+            </div>`;
+        }
+        if (!isMe && isHost && !isPlayerHost) {
             const isS = role === 'seeker';
             const isH = role === 'hider';
             right = `<div class="flex gap-1">
@@ -81,7 +91,7 @@ function updatePlayerList(players) {
         row.innerHTML = `
             <div class="flex items-center gap-2">
                 <div class="w-8 h-8 bg-gray-800 border border-gray-700 flex items-center justify-center rounded-lg text-sm font-bold text-gray-300">
-                    <i class="fa-solid ${role === 'host' ? 'fa-crown text-amber-400' : 'fa-user'}"></i>
+                    <i class="fa-solid ${isPlayerHost ? 'fa-crown text-amber-400' : 'fa-user'}"></i>
                 </div>
                 <div><p class="font-bold text-white text-sm">${p.username} ${isMe ? '<span class="text-[10px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded font-extrabold uppercase">You</span>' : ''}</p></div>
             </div>
@@ -233,17 +243,17 @@ socket.on('gameCreated', ({ roomCode, role }) => {
     switchView('lobby');
 });
 
-socket.on('joinedGame', ({ roomCode, players }) => {
+socket.on('joinedGame', ({ roomCode, players, hostId }) => {
     myRoom = roomCode;
     elements.displayRoomCode.innerText = roomCode;
     elements.setupContainer.classList.add('hidden');
     elements.roomInfo.classList.remove('hidden');
-    updatePlayerList(players);
+    updatePlayerList(players, hostId);
     switchView('lobby');
 });
 
-socket.on('playersUpdated', (players) => {
-    updatePlayerList(players);
+socket.on('playersUpdated', ({ players, hostId }) => {
+    updatePlayerList(players, hostId);
     if (players[socket.id]) {
         myRole = players[socket.id].role;
         elements.roleIndicator.innerText = `Role: ${myRole}`;
@@ -274,18 +284,23 @@ socket.on('gameStarted', ({ state, duration }) => {
 });
 
 socket.on('hiderPing', (hiders) => {
-    Object.values(hiderMarkers).forEach(m => map.removeLayer(m));
-    hiderMarkers = {};
-    triggerAlert('Hiders have been pinged! Check map.', 'warning');
+    triggerAlert('Hider locations pinged! Latest positions revealed.', 'warning');
+    const PING_FADE_MS = 300000;
     hiders.forEach(h => {
         if (myRole === 'seeker' && h.location) {
             const m = L.marker(h.location, {
                 icon: L.divIcon({
-                    className: '',
-                    html: `<div class="relative"><span class="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-amber-400 opacity-75"></span><span class="relative inline-flex rounded-full h-5 w-5 bg-amber-500 border-2 border-white flex items-center justify-center text-[10px] text-black font-extrabold"><i class="fa-solid fa-location-pin"></i></span></div>`
+                    className: 'hider-ping-marker',
+                    html: `<div class="hider-ping-inner"><span class="inline-flex rounded-full h-5 w-5 bg-amber-500 border-2 border-white flex items-center justify-center text-[10px] text-black font-extrabold shadow-lg shadow-amber-500/50"><i class="fa-solid fa-location-pin"></i></span><div class="text-center text-[9px] font-extrabold uppercase tracking-wider text-amber-300 drop-shadow-lg mt-0.5">${h.username}</div></div>`
                 })
-            }).addTo(map).bindPopup(`<p class="font-extrabold text-xs">${h.username}</p>`);
+            }).addTo(map).bindPopup(`<p class="font-extrabold text-xs">${h.username} — latest ping</p>`);
             hiderMarkers[h.id] = m;
+            setTimeout(() => {
+                if (hiderMarkers[h.id]) {
+                    map.removeLayer(hiderMarkers[h.id]);
+                    delete hiderMarkers[h.id];
+                }
+            }, PING_FADE_MS);
         }
     });
 });

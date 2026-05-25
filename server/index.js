@@ -31,7 +31,7 @@ io.on('connection', (socket) => {
         };
         socket.join(roomCode);
         socket.emit('gameCreated', { roomCode, role: 'host' });
-        io.to(roomCode).emit('playersUpdated', games[roomCode].players);
+        io.to(roomCode).emit('playersUpdated', { players: games[roomCode].players, hostId: socket.id });
     });
 
     socket.on('joinGame', ({ roomCode, username }) => {
@@ -40,23 +40,23 @@ io.on('connection', (socket) => {
         const playerUsername = username || `Player_${socket.id.slice(0, 4)}`;
         socket.join(roomCode);
         game.players[socket.id] = { id: socket.id, username: playerUsername, role: 'pending', location: null, revealUsed: false };
-        socket.emit('joinedGame', { roomCode, players: game.players });
-        io.to(roomCode).emit('playersUpdated', game.players);
+        socket.emit('joinedGame', { roomCode, players: game.players, hostId: game.host });
+        io.to(roomCode).emit('playersUpdated', { players: game.players, hostId: game.host });
     });
 
     socket.on('assignRole', ({ roomCode, playerId, role }) => {
         const game = games[roomCode];
         if (game && game.host === socket.id && game.players[playerId]) {
             game.players[playerId].role = role;
-            io.to(roomCode).emit('playersUpdated', game.players);
+            io.to(roomCode).emit('playersUpdated', { players: game.players, hostId: game.host });
         }
     });
 
     socket.on('selfAssignRole', ({ roomCode, role }) => {
         const game = games[roomCode];
-        if (game && game.players[socket.id]) {
+        if (game && game.players[socket.id] && ['seeker', 'hider'].includes(role)) {
             game.players[socket.id].role = role;
-            io.to(roomCode).emit('playersUpdated', game.players);
+            io.to(roomCode).emit('playersUpdated', { players: game.players, hostId: game.host });
         }
     });
 
@@ -73,7 +73,7 @@ io.on('connection', (socket) => {
             .map(p => ({ id: p.id, username: p.username, location: p.location }));
 
         io.to(roomCode).emit('seekerReveal', seekers);
-        io.to(roomCode).emit('playersUpdated', game.players);
+        io.to(roomCode).emit('playersUpdated', { players: game.players, hostId: game.host });
     });
 
     socket.on('setBoundary', ({ roomCode, boundary }) => {
@@ -123,7 +123,7 @@ io.on('connection', (socket) => {
                     io.to(roomCode).emit('error', 'Host disconnected. Game ended.');
                     delete games[roomCode];
                 } else {
-                    io.to(roomCode).emit('playersUpdated', game.players);
+                    io.to(roomCode).emit('playersUpdated', { players: game.players, hostId: game.host });
                 }
             }
         }
