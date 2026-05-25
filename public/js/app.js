@@ -10,6 +10,7 @@ let boundaryPoints = [];
 let boundaryPolygon = null;
 let hiderPingMarkers = [];
 let pingIdCounter = 0;
+let headstartSeekerMarkers = {};
 let penaltyMarkers = {};
 let lastPenaltyAlert = 0;
 let lastGoodLocations = {};
@@ -173,8 +174,7 @@ function initMap() {
     const markerHex = myRole === 'seeker' ? '#3b82f6' : myRole === 'hider' ? '#10b981' : '#f43f5e';
 
     function onGpsSuccess(pos) {
-        const { latitude, longitude, accuracy } = pos.coords;
-        if (accuracy > 80) return;
+        const { latitude, longitude } = pos.coords;
         const loc = [latitude, longitude];
         map.setView(loc, 17);
         setupUserMarker(loc);
@@ -338,13 +338,33 @@ socket.on('gameStarted', ({ state, duration }) => {
     startTracking();
     elements.hostControls.classList.toggle('hidden', !isHost);
     if (state === 'headstart') {
-        elements.statusMsg.innerText = 'Hiders: RUN & HIDE!';
-        triggerAlert('Game started! 1-minute headstart!', 'warning');
-        runCountdown(duration, () => elements.statusMsg.innerText = 'Hunt Mode Active');
+        elements.statusMsg.innerText = 'Hiders: RUN & HIDE! Seekers visible!';
+        triggerAlert('Hiders can see seekers during headstart!', 'warning');
+        runCountdown(duration, () => { if (myRole === 'hider') triggerAlert('Headstart over! Seekers hidden.', 'info'); elements.statusMsg.innerText = 'Hunt Mode Active'; });
     } else {
+        Object.values(headstartSeekerMarkers).forEach(m => map.removeLayer(m));
+        headstartSeekerMarkers = {};
         elements.statusMsg.innerText = 'Hunt Mode Active';
         runCountdown(300, function loop() { runCountdown(300, loop); });
     }
+});
+
+socket.on('headstartSeekerUpdate', (seekers) => {
+    if (myRole !== 'hider') return;
+    seekers.forEach(s => {
+        if (!s.location || !map) return;
+        if (headstartSeekerMarkers[s.playerId]) {
+            headstartSeekerMarkers[s.playerId].setLatLng(s.location);
+        } else {
+            const m = L.marker(s.location, {
+                icon: L.divIcon({
+                    className: '',
+                    html: `<div class="relative flex items-center justify-center"><span class="animate-ping absolute inline-flex h-6 w-6 rounded-full bg-blue-400 opacity-75"></span><span class="relative inline-flex rounded-full h-4 w-4 bg-blue-600 border-2 border-white shadow-lg shadow-blue-500/50"></span></div>`
+                })
+            }).addTo(map).bindPopup(`<p class="font-extrabold text-xs text-blue-600 uppercase">${s.username} (Seeker - headstart)</p>`);
+            headstartSeekerMarkers[s.playerId] = m;
+        }
+    });
 });
 
 socket.on('hiderPing', (hiders) => {
@@ -417,6 +437,8 @@ socket.on('gameEnded', () => {
     if (map) {
         hiderPingMarkers.forEach(e => map.removeLayer(e.marker));
         hiderPingMarkers = [];
+        Object.values(headstartSeekerMarkers).forEach(m => map.removeLayer(m));
+        headstartSeekerMarkers = {};
         Object.values(penaltyMarkers).forEach(m => map.removeLayer(m));
         penaltyMarkers = {};
         map.remove();

@@ -95,6 +95,12 @@ io.on('connection', (socket) => {
         if (game && game.host === socket.id) {
             game.state = 'headstart';
             io.to(roomCode).emit('gameStarted', { state: 'headstart', duration: 60 });
+            const seekers = Object.values(game.players)
+                .filter(p => p.role === 'seeker' && p.location)
+                .map(p => ({ playerId: p.id, username: p.username, location: p.location }));
+            if (seekers.length > 0) {
+                io.to(roomCode).emit('headstartSeekerUpdate', seekers);
+            }
             setTimeout(() => {
                 game.state = 'playing';
                 io.to(roomCode).emit('gameStarted', { state: 'playing' });
@@ -119,6 +125,10 @@ io.on('connection', (socket) => {
         const player = game.players[socket.id];
         if (!player) return;
         player.location = location;
+
+        if (game.state === 'headstart' && player.role === 'seeker') {
+            io.to(roomCode).emit('headstartSeekerUpdate', [{ playerId: socket.id, username: player.username, location }]);
+        }
 
         if (game.state === 'playing' && player.role === 'hider') {
             const isInside = isPointInPolygon(location, game.boundary);
