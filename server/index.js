@@ -163,6 +163,7 @@ function startPingCycle(roomCode) {
         const hiderLocations = Object.values(game.players)
             .filter(p => p.role === 'hider')
             .map(p => ({ id: p.id, username: p.username, location: p.location }));
+        console.log(`[Ping] Room ${roomCode}: ${hiderLocations.length} hiders, ${hiderLocations.filter(h => h.location).length} with GPS`);
         io.to(roomCode).emit('hiderPing', hiderLocations);
     }, 300000);
 }

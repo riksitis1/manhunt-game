@@ -243,11 +243,13 @@ elements.btnConfirmBoundary.onclick = () => {
     switchView('lobby');
 };
 
+let watchId = null;
 function startTracking() {
+    if (watchId !== null) { navigator.geolocation.clearWatch(watchId); }
     const ACCURACY_THRESHOLD = 150;
     const SMOOTHING = 0.5;
     let smoothed = null;
-    navigator.geolocation.watchPosition(pos => {
+    watchId = navigator.geolocation.watchPosition(pos => {
         const { latitude, longitude, accuracy } = pos.coords;
         if (accuracy > ACCURACY_THRESHOLD) return;
         if (!smoothed) {
@@ -368,27 +370,41 @@ socket.on('headstartSeekerUpdate', (seekers) => {
 });
 
 socket.on('hiderPing', (hiders) => {
-    if (myRole === 'seeker') {
-        triggerAlert('Hider locations pinged! Latest positions revealed.', 'warning');
-    }
     if (myRole !== 'seeker') return;
-    const PING_FADE_MS = 300000;
+    triggerAlert('Hider locations pinged! Check map.', 'warning');
+    const FADE_MS = 300000;
+    const FADE_STEPS = 50;
     hiders.forEach(h => {
         if (!h.location || !map) return;
-        const m = L.marker(h.location, {
-            icon: L.divIcon({
-                className: 'hider-ping-marker',
-                html: `<div class="hider-ping-inner"><span class="inline-flex rounded-full h-5 w-5 bg-amber-500 border-2 border-white flex items-center justify-center text-[10px] text-black font-extrabold shadow-lg shadow-amber-500/50"><i class="fa-solid fa-location-pin"></i></span><div class="text-center text-[9px] font-extrabold uppercase tracking-wider text-amber-300 drop-shadow-lg mt-0.5">${h.username}</div></div>`
-            })
-        }).addTo(map).bindPopup(`<p class="font-extrabold text-xs">${h.username} — latest ping</p>`);
-        hiderPingMarkers.push({ marker: m });
-        setTimeout(() => {
-            const idx = hiderPingMarkers.findIndex(e => e.marker === m);
-            if (idx !== -1) {
-                map.removeLayer(m);
-                hiderPingMarkers.splice(idx, 1);
+        const m = L.circleMarker(h.location, {
+            radius: 14,
+            color: '#f59e0b',
+            fillColor: '#fbbf24',
+            fillOpacity: 0.7,
+            weight: 3,
+            opacity: 0.9
+        }).addTo(map);
+        m.bindPopup(`<p class="font-extrabold text-xs">${h.username}</p>`);
+        const stepMs = FADE_MS / FADE_STEPS;
+        let step = 0;
+        const fadeInterval = setInterval(() => {
+            step++;
+            const progress = step / FADE_STEPS;
+            const newOpacity = 0.9 * (1 - progress);
+            const newRadius = 14 * (1 - progress * 0.3);
+            if (m._map) {
+                m.setStyle({ opacity: newOpacity, fillOpacity: newOpacity * 0.77, radius: newRadius });
             }
-        }, PING_FADE_MS);
+            if (step >= FADE_STEPS) {
+                clearInterval(fadeInterval);
+                const idx = hiderPingMarkers.findIndex(e => e.marker === m);
+                if (idx !== -1) {
+                    map.removeLayer(m);
+                    hiderPingMarkers.splice(idx, 1);
+                }
+            }
+        }, stepMs);
+        hiderPingMarkers.push({ marker: m, playerId: h.id, fadeInterval });
     });
 });
 
@@ -433,11 +449,12 @@ socket.on('cheatAlert', ({ playerId, username, location }) => {
 socket.on('gameEnded', () => {
     if (timerInterval) clearInterval(timerInterval);
     timerInterval = null;
+    if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
     revealUsed = false;
     elements.hostControls.classList.add('hidden');
     elements.hiderRevealContainer.classList.add('hidden');
     if (map) {
-        hiderPingMarkers.forEach(e => map.removeLayer(e.marker));
+        hiderPingMarkers.forEach(e => { clearInterval(e.fadeInterval); map.removeLayer(e.marker); });
         hiderPingMarkers = [];
         Object.values(headstartSeekerMarkers).forEach(m => map.removeLayer(m));
         headstartSeekerMarkers = {};

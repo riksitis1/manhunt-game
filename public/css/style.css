@@ -138,18 +138,9 @@ button:active { opacity: 0.7; }
     justify-content: center;
 }
 
-.hider-ping-marker.leaflet-div-icon {
+.leaflet-div-icon {
     background: none !important;
     border: none !important;
-}
-
-@keyframes hiderPingFade {
-    from { opacity: 1; transform: scale(1); }
-    to { opacity: 0; transform: scale(0.8); }
-}
-
-.hider-ping-marker .hider-ping-inner {
-    animation: hiderPingFade 300s linear forwards;
 }
 
 #btn-confirm-boundary {
