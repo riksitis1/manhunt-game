@@ -14,12 +14,18 @@ const io = new Server(server, {
 
 const games = {};
 
+function cleanUsername(raw) {
+    if (typeof raw !== 'string') return null;
+    const cleaned = raw.replace(/[^a-zA-Z]/g, '').slice(0, 12);
+    return cleaned.length >= 2 ? cleaned : null;
+}
+
 io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
 
     socket.on('createGame', ({ username }) => {
+        const hostName = cleanUsername(username) || 'Player';
         const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
-        const hostName = username || 'Host';
         games[roomCode] = {
             host: socket.id,
             players: {
@@ -37,7 +43,7 @@ io.on('connection', (socket) => {
     socket.on('joinGame', ({ roomCode, username }) => {
         const game = games[roomCode];
         if (!game) return socket.emit('error', 'Game not found');
-        const playerUsername = username || `Player_${socket.id.slice(0, 4)}`;
+        const playerUsername = cleanUsername(username) || `Player_${socket.id.slice(0, 4)}`;
         socket.join(roomCode);
         game.players[socket.id] = { id: socket.id, username: playerUsername, role: 'pending', location: null, revealUsed: false };
         socket.emit('joinedGame', { roomCode, players: game.players, hostId: game.host });
@@ -94,6 +100,16 @@ io.on('connection', (socket) => {
                 io.to(roomCode).emit('gameStarted', { state: 'playing' });
                 startPingCycle(roomCode);
             }, 60000);
+        }
+    });
+
+    socket.on('endGame', (roomCode) => {
+        const game = games[roomCode];
+        if (game && game.host === socket.id) {
+            clearInterval(game.pingTimer);
+            game.state = 'lobby';
+            Object.values(game.players).forEach(p => { p.revealUsed = false; });
+            io.to(roomCode).emit('gameEnded');
         }
     });
 

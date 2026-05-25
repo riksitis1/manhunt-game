@@ -11,6 +11,7 @@ let boundaryPolygon = null;
 let hiderPingMarkers = [];
 let pingIdCounter = 0;
 let penaltyMarkers = {};
+let lastPenaltyAlert = 0;
 let lastGoodLocations = {};
 let playersList = {};
 let timerInterval = null;
@@ -39,7 +40,9 @@ const elements = {
     roleIndicator: document.getElementById('role-indicator'),
     gameAlerts: document.getElementById('game-alerts'),
     hiderRevealContainer: document.getElementById('hider-reveal-container'),
-    btnRevealSeekers: document.getElementById('btn-reveal-seekers')
+    btnRevealSeekers: document.getElementById('btn-reveal-seekers'),
+    hostControls: document.getElementById('host-controls'),
+    btnEndGame: document.getElementById('btn-end-game')
 };
 
 function switchView(name) {
@@ -65,28 +68,12 @@ function updatePlayerList(players, hostId) {
         else badge = `<span class="px-3 py-1 text-xs font-bold uppercase rounded-full bg-gray-800 text-gray-400">Pending</span>`;
 
         let right = badge;
-        if (isMe && !isPlayerHost) {
+        if (isHost) {
             const isS = role === 'seeker';
             const isH = role === 'hider';
             right = `<div class="flex gap-1">
-                <button onclick="selfRole('seeker')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isS ? 'bg-blue-600 text-white' : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white'}"><i class="fa-solid fa-binoculars mr-1"></i>Seeker</button>
-                <button onclick="selfRole('hider')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isH ? 'bg-emerald-600 text-white' : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white'}"><i class="fa-solid fa-eye-slash mr-1"></i>Hider</button>
-            </div>`;
-        }
-        if (isMe && isPlayerHost) {
-            const isS = role === 'seeker';
-            const isH = role === 'hider';
-            right = `<div class="flex gap-1">
-                <button onclick="selfRole('seeker')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isS ? 'bg-blue-600 text-white' : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white'}"><i class="fa-solid fa-binoculars mr-1"></i>Seeker</button>
-                <button onclick="selfRole('hider')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isH ? 'bg-emerald-600 text-white' : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white'}"><i class="fa-solid fa-eye-slash mr-1"></i>Hider</button>
-            </div>`;
-        }
-        if (!isMe && isHost && !isPlayerHost) {
-            const isS = role === 'seeker';
-            const isH = role === 'hider';
-            right = `<div class="flex gap-1">
-                <button onclick="hostRole('${p.id}','seeker')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isS ? 'bg-blue-600 text-white' : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white'}">Seeker</button>
-                <button onclick="hostRole('${p.id}','hider')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isH ? 'bg-emerald-600 text-white' : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white'}">Hider</button>
+                <button onclick="hostRole('${p.id}','seeker')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isS ? 'bg-blue-600 text-white' : 'bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white'}"><i class="fa-solid fa-binoculars mr-1"></i>Seeker</button>
+                <button onclick="hostRole('${p.id}','hider')" class="px-2.5 py-1 text-xs font-bold rounded-md transition ${isH ? 'bg-emerald-600 text-white' : 'bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white'}"><i class="fa-solid fa-eye-slash mr-1"></i>Hider</button>
             </div>`;
         }
 
@@ -109,7 +96,12 @@ function updatePlayerList(players, hostId) {
     }
 }
 
-window.selfRole = (role) => socket.emit('selfAssignRole', { roomCode: myRoom, role });
+function sanitizeUsername(raw) {
+    const cleaned = raw.replace(/[^a-zA-Z]/g, '').slice(0, 12);
+    if (cleaned.length < 2) return null;
+    return cleaned;
+}
+
 window.hostRole = (pid, role) => socket.emit('assignRole', { roomCode: myRoom, playerId: pid, role });
 
 function requestGpsPermission() {
@@ -121,12 +113,16 @@ function requestGpsPermission() {
 }
 
 document.getElementById('btn-create').onclick = () => {
-    myUsername = elements.usernameInput.value.trim() || 'Anonymous';
+    const name = sanitizeUsername(elements.usernameInput.value);
+    if (!name) return alert('Name must be 2-12 letters only (A-Z)');
+    myUsername = name;
     socket.emit('createGame', { username: myUsername });
     requestGpsPermission();
 };
 document.getElementById('btn-join').onclick = () => {
-    myUsername = elements.usernameInput.value.trim() || 'Anonymous';
+    const name = sanitizeUsername(elements.usernameInput.value);
+    if (!name) return alert('Name must be 2-12 letters only (A-Z)');
+    myUsername = name;
     const room = elements.roomInput.value.trim().toUpperCase();
     if (!room) return alert('Enter room code');
     socket.emit('joinGame', { roomCode: room, username: myUsername });
@@ -148,6 +144,11 @@ elements.btnRevealSeekers.onclick = () => {
     revealUsed = true;
     elements.hiderRevealContainer.classList.add('hidden');
     socket.emit('requestReveal', myRoom);
+};
+elements.btnEndGame.onclick = () => {
+    if (confirm('End the game for everyone?')) {
+        socket.emit('endGame', myRoom);
+    }
 };
 
 // --- Map ---
@@ -335,6 +336,7 @@ socket.on('gameStarted', ({ state, duration }) => {
     switchView('game');
     initMap();
     startTracking();
+    elements.hostControls.classList.toggle('hidden', !isHost);
     if (state === 'headstart') {
         elements.statusMsg.innerText = 'Hiders: RUN & HIDE!';
         triggerAlert('Game started! 1-minute headstart!', 'warning');
@@ -389,7 +391,11 @@ socket.on('seekerReveal', (seekers) => {
 });
 
 socket.on('cheatAlert', ({ playerId, username, location }) => {
-    triggerAlert(`${username} left the zone! Live location shown!`, 'danger');
+    const now = Date.now();
+    if (now - lastPenaltyAlert > 3000) {
+        lastPenaltyAlert = now;
+        triggerAlert(`${username} left the zone! Live location shown!`, 'danger');
+    }
     if (penaltyMarkers[playerId]) {
         penaltyMarkers[playerId].setLatLng(location);
     } else {
@@ -401,6 +407,28 @@ socket.on('cheatAlert', ({ playerId, username, location }) => {
         }).addTo(map).bindPopup(`<p class="font-extrabold text-xs text-red-600 uppercase">PENALTY: ${username}</p>`);
         penaltyMarkers[playerId] = m;
     }
+});
+
+socket.on('gameEnded', () => {
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = null;
+    elements.hostControls.classList.add('hidden');
+    elements.hiderRevealContainer.classList.add('hidden');
+    if (map) {
+        hiderPingMarkers.forEach(e => map.removeLayer(e.marker));
+        hiderPingMarkers = [];
+        Object.values(penaltyMarkers).forEach(m => map.removeLayer(m));
+        penaltyMarkers = {};
+        map.remove();
+        map = null;
+        userMarker = null;
+    }
+    switchView('lobby');
+    elements.setupContainer.classList.remove('hidden');
+    elements.roomInfo.classList.add('hidden');
+    elements.btnDrawBounds.classList.add('hidden');
+    elements.btnStartGame.classList.add('hidden');
+    triggerAlert('Game has ended by the host.', 'danger');
 });
 
 socket.on('error', (msg) => alert(msg));
