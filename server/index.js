@@ -29,7 +29,7 @@ io.on('connection', (socket) => {
         games[roomCode] = {
             host: socket.id,
             players: {
-                [socket.id]: { id: socket.id, username: hostName, role: 'host', location: null, revealUsed: false }
+                [socket.id]: { id: socket.id, username: hostName, role: 'host', location: null, revealUsed: false, online: true }
             },
             boundary: [],
             state: 'lobby',
@@ -45,9 +45,32 @@ io.on('connection', (socket) => {
         if (!game) return socket.emit('error', 'Game not found');
         const playerUsername = cleanUsername(username) || `Player_${socket.id.slice(0, 4)}`;
         socket.join(roomCode);
-        game.players[socket.id] = { id: socket.id, username: playerUsername, role: 'pending', location: null, revealUsed: false };
+        game.players[socket.id] = { id: socket.id, username: playerUsername, role: 'pending', location: null, revealUsed: false, online: true };
         socket.emit('joinedGame', { roomCode, players: game.players, hostId: game.host });
         io.to(roomCode).emit('playersUpdated', { players: game.players, hostId: game.host });
+    });
+
+    socket.on('rejoinGame', ({ roomCode, username }) => {
+        const game = games[roomCode];
+        if (game) {
+            const player = Object.values(game.players).find(p => p.username === username);
+            if (player) {
+                delete game.players[player.id];
+                if (game.host === player.id) {
+                    game.host = socket.id;
+                    if (game.disconnectTimeout) {
+                        clearTimeout(game.disconnectTimeout);
+                        game.disconnectTimeout = null;
+                    }
+                }
+                player.id = socket.id;
+                player.online = true;
+                game.players[socket.id] = player;
+                socket.join(roomCode);
+                socket.emit('joinedGame', { roomCode, players: game.players, hostId: game.host });
+                io.to(roomCode).emit('playersUpdated', { players: game.players, hostId: game.host });
+            }
+        }
     });
 
     socket.on('assignRole', ({ roomCode, playerId, role }) => {
@@ -155,12 +178,15 @@ io.on('connection', (socket) => {
         console.log(`User disconnected: ${socket.id}`);
         for (const roomCode in games) {
             const game = games[roomCode];
-            if (game.players[socket.id]) {
-                delete game.players[socket.id];
+            const player = game.players[socket.id];
+            if (player) {
+                player.online = false;
                 if (game.host === socket.id) {
-                    clearInterval(game.pingTimer);
-                    io.to(roomCode).emit('error', 'Host disconnected. Game ended.');
-                    delete games[roomCode];
+                    game.disconnectTimeout = setTimeout(() => {
+                        clearInterval(game.pingTimer);
+                        io.to(roomCode).emit('error', 'Host disconnected permanently. Game ended.');
+                        delete games[roomCode];
+                    }, 15000);
                 } else {
                     io.to(roomCode).emit('playersUpdated', { players: game.players, hostId: game.host });
                 }

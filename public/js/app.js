@@ -1,7 +1,7 @@
 const socket = io();
 
-let myRoom = null;
-let myUsername = '';
+let myRoom = localStorage.getItem('manhunt_room') || null;
+let myUsername = localStorage.getItem('manhunt_username') || '';
 let myRole = 'pending';
 let isHost = false;
 let map = null;
@@ -80,12 +80,15 @@ function updatePlayerList(players, hostId) {
             </div>`;
         }
 
+        const isOnline = p.online !== false;
+        const offlineBadge = isOnline ? '' : `<span class="text-[10px] bg-gray-900 text-gray-500 px-1.5 py-0.5 rounded font-extrabold uppercase ml-1">Offline</span>`;
+
         row.innerHTML = `
             <div class="flex items-center gap-2">
                 <div class="w-8 h-8 bg-gray-800 border border-gray-700 flex items-center justify-center rounded-lg text-sm font-bold text-gray-300">
                     <i class="fa-solid ${isPlayerHost ? 'fa-crown text-amber-400' : 'fa-user'}"></i>
                 </div>
-                <div><p class="font-bold text-white text-sm">${p.username} ${isMe ? '<span class="text-[10px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded font-extrabold uppercase">You</span>' : ''}</p></div>
+                <div><p class="font-bold text-sm ${isOnline ? 'text-white' : 'text-gray-500'}">${p.username} ${isMe ? '<span class="text-[10px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded font-extrabold uppercase">You</span>' : ''} ${offlineBadge}</p></div>
             </div>
             <div>${right}</div>
         `;
@@ -291,8 +294,16 @@ function updateTimerUI(sec) {
 }
 
 // --- Socket Events ---
+socket.on('connect', () => {
+    if (myRoom && myUsername) {
+        socket.emit('rejoinGame', { roomCode: myRoom, username: myUsername });
+    }
+});
+
 socket.on('gameCreated', ({ roomCode, role }) => {
     myRoom = roomCode; isHost = true; myRole = role;
+    localStorage.setItem('manhunt_room', myRoom);
+    localStorage.setItem('manhunt_username', myUsername);
     elements.displayRoomCode.innerText = roomCode;
     elements.setupContainer.classList.add('hidden');
     elements.roomInfo.classList.remove('hidden');
@@ -302,6 +313,8 @@ socket.on('gameCreated', ({ roomCode, role }) => {
 
 socket.on('joinedGame', ({ roomCode, players, hostId }) => {
     myRoom = roomCode;
+    localStorage.setItem('manhunt_room', myRoom);
+    localStorage.setItem('manhunt_username', myUsername);
     elements.displayRoomCode.innerText = roomCode;
     elements.setupContainer.classList.add('hidden');
     elements.roomInfo.classList.remove('hidden');
@@ -435,6 +448,9 @@ socket.on('gameEnded', () => {
     timerInterval = null;
     if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
     revealUsed = false;
+    myRoom = null; myUsername = ''; isHost = false;
+    localStorage.removeItem('manhunt_room');
+    localStorage.removeItem('manhunt_username');
     elements.hostControls.classList.add('hidden');
     elements.hiderRevealContainer.classList.add('hidden');
     if (map) {
@@ -458,7 +474,9 @@ socket.on('gameEnded', () => {
 
 socket.on('kicked', (msg) => {
     alert(msg);
-    myRoom = null; myRole = 'pending'; isHost = false;
+    myRoom = null; myUsername = ''; myRole = 'pending'; isHost = false;
+    localStorage.removeItem('manhunt_room');
+    localStorage.removeItem('manhunt_username');
     if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
     if (timerInterval) clearInterval(timerInterval);
     elements.setupContainer.classList.remove('hidden');
@@ -466,4 +484,16 @@ socket.on('kicked', (msg) => {
     switchView('lobby');
 });
 
-socket.on('error', (msg) => alert(msg));
+socket.on('error', (msg) => {
+    alert(msg);
+    if (msg.includes('Game not found') || msg.includes('Host disconnected permanently')) {
+        myRoom = null; myUsername = ''; isHost = false;
+        localStorage.removeItem('manhunt_room');
+        localStorage.removeItem('manhunt_username');
+        if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+        if (timerInterval) clearInterval(timerInterval);
+        elements.setupContainer.classList.remove('hidden');
+        elements.roomInfo.classList.add('hidden');
+        switchView('lobby');
+    }
+});
