@@ -43,10 +43,11 @@ io.on('connection', (socket) => {
     socket.on('joinGame', ({ roomCode, username }) => {
         const game = games[roomCode];
         if (!game) return socket.emit('error', 'Game not found');
+        if (game.state !== 'lobby') return socket.emit('error', 'Game already in progress');
         const playerUsername = cleanUsername(username) || `Player_${socket.id.slice(0, 4)}`;
         socket.join(roomCode);
         game.players[socket.id] = { id: socket.id, username: playerUsername, role: 'pending', location: null, revealUsed: false, online: true };
-        socket.emit('joinedGame', { roomCode, players: game.players, hostId: game.host });
+        socket.emit('joinedGame', { roomCode, players: game.players, hostId: game.host, state: game.state });
         io.to(roomCode).emit('playersUpdated', { players: game.players, hostId: game.host });
     });
 
@@ -67,9 +68,28 @@ io.on('connection', (socket) => {
                 player.online = true;
                 game.players[socket.id] = player;
                 socket.join(roomCode);
-                socket.emit('joinedGame', { roomCode, players: game.players, hostId: game.host });
+                socket.emit('joinedGame', { roomCode, players: game.players, hostId: game.host, state: game.state });
                 io.to(roomCode).emit('playersUpdated', { players: game.players, hostId: game.host });
+                
+                // Send current boundary if set
+                if (game.boundary && game.boundary.length >= 3) {
+                    socket.emit('boundaryUpdated', game.boundary);
+                }
+                
+                // If in headstart, send current seeker locations
+                if (game.state === 'headstart') {
+                    const seekers = Object.values(game.players)
+                        .filter(p => p.role === 'seeker' && p.location)
+                        .map(p => ({ playerId: p.id, username: p.username, location: p.location }));
+                    if (seekers.length > 0) {
+                        socket.emit('headstartSeekerUpdate', seekers);
+                    }
+                }
+            } else {
+                socket.emit('error', 'Could not rejoin. Return to lobby.');
             }
+        } else {
+            socket.emit('error', 'Game not found. It may have ended.');
         }
     });
 
@@ -94,14 +114,6 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('selfAssignRole', ({ roomCode, role }) => {
-        const game = games[roomCode];
-        if (game && game.players[socket.id] && ['seeker', 'hider'].includes(role)) {
-            game.players[socket.id].role = role;
-            io.to(roomCode).emit('playersUpdated', { players: game.players, hostId: game.host });
-        }
-    });
-
     socket.on('requestReveal', (roomCode) => {
         const game = games[roomCode];
         if (!game) return;
@@ -114,7 +126,13 @@ io.on('connection', (socket) => {
             .filter(p => p.role === 'seeker' && p.location)
             .map(p => ({ id: p.id, username: p.username, location: p.location }));
 
-        io.to(roomCode).emit('seekerReveal', seekers);
+        // Only send to hiders
+        Object.values(game.players).forEach(p => {
+            if (p.role === 'hider') {
+                const s = io.sockets.sockets.get(p.id);
+                if (s) s.emit('seekerReveal', seekers);
+            }
+        });
         io.to(roomCode).emit('playersUpdated', { players: game.players, hostId: game.host });
     });
 
@@ -202,7 +220,11 @@ function startPingCycle(roomCode) {
         const hiderLocations = Object.values(game.players)
             .filter(p => p.role === 'hider')
             .map(p => ({ id: p.id, username: p.username, location: p.location }));
-        console.log(`[Ping] Room ${roomCode}: ${hiderLocations.length} hiders, ${hiderLocations.filter(h => h.location).length} with GPS`);
+        
+        const gpsCount = hiderLocations.filter(h => h.location).length;
+        console.log(`[Ping] Room ${roomCode}: ${hiderLocations.length} hiders, ${gpsCount} with GPS`);
+        
+        io.to(roomCode).emit('debugPing', `Ping fired: ${hiderLocations.length} hiders, ${gpsCount} with GPS`);
         io.to(roomCode).emit('hiderPing', hiderLocations);
     }, 300000);
 }

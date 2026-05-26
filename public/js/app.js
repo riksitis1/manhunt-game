@@ -9,7 +9,6 @@ let userMarker = null;
 let boundaryPoints = [];
 let boundaryPolygon = null;
 let hiderPingMarkers = [];
-let pingIdCounter = 0;
 let headstartSeekerMarkers = {};
 let penaltyMarkers = {};
 let lastPenaltyAlert = 0;
@@ -185,6 +184,7 @@ function initMap() {
         map.setView(loc, 17);
         setupUserMarker(loc);
         lastGoodLocations[socket.id] = loc;
+        socket.emit('updateLocation', { roomCode: myRoom, location: loc });
     }
 
     function onGpsError() {
@@ -217,6 +217,7 @@ function initMap() {
         map.setView(pendingLoc, 17);
         setupUserMarker(pendingLoc);
         lastGoodLocations[socket.id] = pendingLoc;
+        socket.emit('updateLocation', { roomCode: myRoom, location: pendingLoc });
         delete lastGoodLocations['_pending'];
     } else {
         navigator.geolocation.getCurrentPosition(onGpsSuccess, onGpsError, { enableHighAccuracy: true, timeout: 10000 });
@@ -252,7 +253,7 @@ elements.btnConfirmBoundary.onclick = () => {
 let watchId = null;
 function startTracking() {
     if (watchId !== null) { navigator.geolocation.clearWatch(watchId); }
-    const ACCURACY_THRESHOLD = 150;
+    const ACCURACY_THRESHOLD = 1000;
     const SMOOTHING = 0.5;
     let smoothed = null;
     watchId = navigator.geolocation.watchPosition(pos => {
@@ -311,7 +312,7 @@ socket.on('gameCreated', ({ roomCode, role }) => {
     switchView('lobby');
 });
 
-socket.on('joinedGame', ({ roomCode, players, hostId }) => {
+socket.on('joinedGame', ({ roomCode, players, hostId, state }) => {
     myRoom = roomCode;
     localStorage.setItem('manhunt_room', myRoom);
     localStorage.setItem('manhunt_username', myUsername);
@@ -319,7 +320,14 @@ socket.on('joinedGame', ({ roomCode, players, hostId }) => {
     elements.setupContainer.classList.add('hidden');
     elements.roomInfo.classList.remove('hidden');
     updatePlayerList(players, hostId);
-    switchView('lobby');
+    
+    if (state === 'headstart' || state === 'playing') {
+        switchView('game');
+        initMap();
+        startTracking();
+    } else {
+        switchView('lobby');
+    }
 });
 
 socket.on('playersUpdated', ({ players, hostId }) => {
@@ -385,19 +393,17 @@ socket.on('headstartSeekerUpdate', (seekers) => {
     });
 });
 
+socket.on('debugPing', (msg) => {
+    triggerAlert(msg, 'info');
+});
+
 socket.on('hiderPing', (hiders) => {
     if (myRole !== 'seeker') return;
-    const withLoc = hiders.filter(h => h.location).length;
-    triggerAlert(`Hider ping: ${hiders.length} hiders, ${withLoc} with GPS`, 'warning');
     hiders.forEach(h => {
         if (!h.location || !map) return;
         const m = L.circleMarker(h.location, {
-            radius: 22,
-            color: '#dc2626',
-            fillColor: '#fbbf24',
-            fillOpacity: 0.85,
-            weight: 4,
-            opacity: 1
+            radius: 20, color: '#ef4444', fillColor: '#fbbf24', 
+            fillOpacity: 0.9, weight: 4, opacity: 1
         }).addTo(map);
         m.bindPopup(`<p class="font-extrabold text-sm">${h.username}</p>`);
         hiderPingMarkers.push({ marker: m });
@@ -454,12 +460,14 @@ socket.on('gameEnded', () => {
     elements.hostControls.classList.add('hidden');
     elements.hiderRevealContainer.classList.add('hidden');
     if (map) {
-        hiderPingMarkers.forEach(e => { clearInterval(e.fadeInterval); map.removeLayer(e.marker); });
+        hiderPingMarkers.forEach(e => map.removeLayer(e.marker));
         hiderPingMarkers = [];
         Object.values(headstartSeekerMarkers).forEach(m => map.removeLayer(m));
         headstartSeekerMarkers = {};
         Object.values(penaltyMarkers).forEach(m => map.removeLayer(m));
         penaltyMarkers = {};
+        Object.values(seekerMarkers).forEach(m => map.removeLayer(m));
+        seekerMarkers = {};
         map.remove();
         map = null;
         userMarker = null;
@@ -479,6 +487,21 @@ socket.on('kicked', (msg) => {
     localStorage.removeItem('manhunt_username');
     if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
     if (timerInterval) clearInterval(timerInterval);
+    if (map) {
+        hiderPingMarkers.forEach(e => map.removeLayer(e.marker));
+        hiderPingMarkers = [];
+        Object.values(headstartSeekerMarkers).forEach(m => map.removeLayer(m));
+        headstartSeekerMarkers = {};
+        Object.values(penaltyMarkers).forEach(m => map.removeLayer(m));
+        penaltyMarkers = {};
+        Object.values(seekerMarkers).forEach(m => map.removeLayer(m));
+        seekerMarkers = {};
+        map.remove();
+        map = null;
+        userMarker = null;
+    }
+    elements.hostControls.classList.add('hidden');
+    elements.hiderRevealContainer.classList.add('hidden');
     elements.setupContainer.classList.remove('hidden');
     elements.roomInfo.classList.add('hidden');
     switchView('lobby');
@@ -486,12 +509,22 @@ socket.on('kicked', (msg) => {
 
 socket.on('error', (msg) => {
     alert(msg);
-    if (msg.includes('Game not found') || msg.includes('Host disconnected permanently')) {
+    if (myRoom) {
         myRoom = null; myUsername = ''; isHost = false;
         localStorage.removeItem('manhunt_room');
         localStorage.removeItem('manhunt_username');
         if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
         if (timerInterval) clearInterval(timerInterval);
+        if (map) {
+            hiderPingMarkers.forEach(e => map.removeLayer(e.marker));
+            hiderPingMarkers = [];
+            Object.values(headstartSeekerMarkers).forEach(m => map.removeLayer(m));
+            headstartSeekerMarkers = {};
+            Object.values(penaltyMarkers).forEach(m => map.removeLayer(m));
+            penaltyMarkers = {};
+            map.remove();
+            map = null; userMarker = null;
+        }
         elements.setupContainer.classList.remove('hidden');
         elements.roomInfo.classList.add('hidden');
         switchView('lobby');
